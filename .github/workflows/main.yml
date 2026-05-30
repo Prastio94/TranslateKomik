@@ -16,7 +16,7 @@ jobs:
     - name: Setup Java JDK
       uses: actions/setup-java@v4
       with:
-        java-version: '17' # Standar Java untuk Android masa kini
+        java-version: '11' # Versi diubah menjadi 11 menyesuaikan Gradle Anda
         distribution: 'temurin'
         cache: gradle
 
@@ -31,4 +31,3 @@ jobs:
       with:
         name: TranslateKomik-APK
         path: app/build/outputs/apk/debug/app-debug.apk
-
