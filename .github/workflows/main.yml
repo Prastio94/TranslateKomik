@@ -1,0 +1,34 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # Mengizinkan Anda menekan tombol build secara manual
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Java JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17' # Standar Java untuk Android masa kini
+        distribution: 'temurin'
+        cache: gradle
+
+    - name: Beri izin eksekusi untuk Gradle
+      run: chmod +x gradlew
+
+    - name: Build APK (Assemble Debug)
+      run: ./gradlew assembleDebug
+
+    - name: Upload APK sebagai Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: TranslateKomik-APK
+        path: app/build/outputs/apk/debug/app-debug.apk
+
