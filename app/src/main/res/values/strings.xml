@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Translate Komik</string>
+    
+    <string name="accessibility_desc">Layanan ini digunakan oleh Translate Komik untuk menggulir layar ke bawah secara otomatis (Auto-Scroll) saat Anda membaca manga.</string>
+</resources>
