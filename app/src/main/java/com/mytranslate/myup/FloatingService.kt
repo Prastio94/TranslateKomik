@@ -5,7 +5,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -28,6 +30,7 @@ class FloatingService : Service(), TextToSpeech.OnInitListener {
     private lateinit var btnMode: TextView
     private lateinit var btnTextVis: TextView
     private lateinit var btnScroll: TextView
+    private lateinit var btnCrop: TextView // TOMBOL BARU
     private lateinit var tvResult: TextView
     
     private var ttsEngine: TextToSpeech? = null
@@ -42,8 +45,6 @@ class FloatingService : Service(), TextToSpeech.OnInitListener {
     private val ttsDelayHandler = Handler(Looper.getMainLooper())
     private val autoScrollHandler = Handler(Looper.getMainLooper())
     private var lastSpokenText = ""
-    
-    // Variabel pengingat posisi koordinat teks terbawah di layar saat ini
     private var lastTextYCoordinate = 0
 
     private val autoScanRunnable = object : Runnable {
@@ -72,7 +73,6 @@ class FloatingService : Service(), TextToSpeech.OnInitListener {
                     return
                 }
 
-                // KIRIM SINYAL SCROLL: Menyisipkan koordinat teks terakhir terbaca agar geser akurat
                 val scrollIntent = Intent("com.mytranslate.myup.TRIGGER_SCROLL").apply {
                     putExtra("LAST_TEXT_Y", lastTextYCoordinate)
                 }
@@ -82,7 +82,6 @@ class FloatingService : Service(), TextToSpeech.OnInitListener {
                     autoScanHandler.removeCallbacks(autoScanRunnable)
                     autoScanHandler.postDelayed(autoScanRunnable, 1500) 
                 }
-                
                 autoScrollHandler.postDelayed(this, 4000)
             }
         }
@@ -94,26 +93,18 @@ class FloatingService : Service(), TextToSpeech.OnInitListener {
             val maxY = intent?.getIntExtra("MAX_Y", 0) ?: 0
             
             if (text != null && text.isNotEmpty()) {
-                
                 if (text.contains("Memulai") || text.contains("Mati")) {
                     tvResult.text = text
                     return
                 }
-
                 if (text.trim() == lastSpokenText.trim()) return
 
                 tvResult.text = text
                 tvResult.visibility = if (isTextVisible) View.VISIBLE else View.GONE
-                
                 lastSpokenText = text.trim()
-                
-                // Simpan koordinat Y teks terbawah yang valid ke dalam memori
-                if (maxY > 0) {
-                    lastTextYCoordinate = maxY
-                }
+                if (maxY > 0) lastTextYCoordinate = maxY
                 
                 ttsDelayHandler.removeCallbacksAndMessages(null)
-
                 ttsDelayHandler.postDelayed({
                     if (isTtsReady && ttsEngine?.isSpeaking == false) {
                         val textToSpeak = text.lowercase(Locale("id", "ID"))
@@ -185,9 +176,21 @@ class FloatingService : Service(), TextToSpeech.OnInitListener {
             textSize = 12f
             gravity = Gravity.CENTER
             setPadding(10, 10, 10, 10)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(0,0,5,0) }
         }
+        
+        btnCrop = TextView(this).apply {
+            text = "✂️ SCAN AREA"
+            setBackgroundColor(Color.parseColor("#D2691E")) 
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setPadding(10, 10, 10, 10)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(5,0,0,0) }
+        }
+        
         controlLayout2.addView(btnScroll)
+        controlLayout2.addView(btnCrop)
 
         tvResult = TextView(this).apply {
             text = "Menunggu komik..."
@@ -227,6 +230,12 @@ class FloatingService : Service(), TextToSpeech.OnInitListener {
         }
 
         windowManager.addView(floatingView, params)
+
+        // KLIK TOMBOL CROP
+        btnCrop.setOnClickListener {
+            floatingView.visibility = View.GONE
+            showCropOverlay()
+        }
 
         btnMode.setOnClickListener {
             isTranslateMode = !isTranslateMode
@@ -302,7 +311,7 @@ class FloatingService : Service(), TextToSpeech.OnInitListener {
                                 btnCapture.setBackgroundColor(Color.parseColor("#006400"))
                                 tvResult.text = "Memulai..."
                                 lastSpokenText = "" 
-                                lastTextYCoordinate = 0 // Reset koordinat awal
+                                lastTextYCoordinate = 0 
                                 autoScanHandler.post(autoScanRunnable)
                             } else {
                                 btnCapture.text = "📷 AUDIO MANGA: OFF"
@@ -322,6 +331,95 @@ class FloatingService : Service(), TextToSpeech.OnInitListener {
 
         registerReceiver(updateTextReceiver, IntentFilter("com.mytranslate.myup.UPDATE_TEXT"))
     }
+    
+    // FUNGSI UNTUK MENGGAMBAR KOTAK SELEKSI MANUAL
+    private fun showCropOverlay() {
+        val cropView = object : View(this@FloatingService) {
+            val paint = Paint().apply {
+                color = Color.RED
+                style = Paint.Style.STROKE
+                strokeWidth = 8f
+            }
+            val bgPaint = Paint().apply {
+                color = Color.parseColor("#44000000") // Layar sedikit gelap
+            }
+            var startX = 0f
+            var startY = 0f
+            var endX = 0f
+            var endY = 0f
+            var isDrawing = false
+
+            override fun onDraw(canvas: Canvas) {
+                super.onDraw(canvas)
+                canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
+                if (isDrawing) {
+                    val left = minOf(startX, endX)
+                    val top = minOf(startY, endY)
+                    val right = maxOf(startX, endX)
+                    val bottom = maxOf(startY, endY)
+                    canvas.drawRect(left, top, right, bottom, paint)
+                }
+            }
+
+            override fun onTouchEvent(event: MotionEvent): Boolean {
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        startX = event.x
+                        startY = event.y
+                        endX = event.x
+                        endY = event.y
+                        isDrawing = true
+                        invalidate()
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        endX = event.x
+                        endY = event.y
+                        invalidate()
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        isDrawing = false
+                        val left = minOf(startX, endX).toInt()
+                        val top = minOf(startY, endY).toInt()
+                        val right = maxOf(startX, endX).toInt()
+                        val bottom = maxOf(startY, endY).toInt()
+
+                        windowManager.removeView(this)
+                        floatingView.visibility = View.VISIBLE
+
+                        // Jika kotak cukup besar, mulai eksekusi potong layarnya!
+                        if (right - left > 50 && bottom - top > 50) {
+                            val captureIntent = Intent(this@FloatingService, ScreenCaptureService::class.java).apply {
+                                action = "ACTION_CAPTURE"
+                                putExtra("MODE_TRANSLATE", isTranslateMode)
+                                putExtra("CROP_LEFT", left)
+                                putExtra("CROP_TOP", top)
+                                putExtra("CROP_RIGHT", right)
+                                putExtra("CROP_BOTTOM", bottom)
+                            }
+                            startService(captureIntent)
+                        }
+                    }
+                }
+                return true
+            }
+        }
+
+        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val cropParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            layoutFlag,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        )
+        windowManager.addView(cropView, cropParams)
+    }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
@@ -329,22 +427,6 @@ class FloatingService : Service(), TextToSpeech.OnInitListener {
             if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
                 isTtsReady = true
                 ttsEngine?.setSpeechRate(0.95f)
-
-                try {
-                    val voices = ttsEngine?.voices
-                    if (voices != null) {
-                        var selectedVoice: android.speech.tts.Voice? = null
-                        for (voice in voices) {
-                            if (voice.locale.language == "id") {
-                                if (voice.name.lowercase().contains("male") || voice.name.lowercase().contains("idc")) {
-                                    selectedVoice = voice
-                                    break
-                                }
-                            }
-                        }
-                        if (selectedVoice != null) ttsEngine?.voice = selectedVoice
-                    }
-                } catch (e: Exception) {}
             }
         }
     }
