@@ -9,6 +9,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
@@ -32,6 +36,9 @@ class ScreenCaptureService : Service() {
     private lateinit var translatorEngine: TranslatorEngine
     private var isCapturing = false
     private var isTranslateMode = true
+    
+    // Variabel untuk menyimpan area yang dipilih manual
+    private var cropRect: Rect? = null
 
     companion object {
         var resultCode = Activity.RESULT_CANCELED
@@ -53,6 +60,17 @@ class ScreenCaptureService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "ACTION_CAPTURE") {
             isTranslateMode = intent.getBooleanExtra("MODE_TRANSLATE", true)
+            
+            // Tangkap koordinat crop jika ada
+            val left = intent.getIntExtra("CROP_LEFT", -1)
+            if (left != -1) {
+                val top = intent.getIntExtra("CROP_TOP", 0)
+                val right = intent.getIntExtra("CROP_RIGHT", 0)
+                val bottom = intent.getIntExtra("CROP_BOTTOM", 0)
+                cropRect = Rect(left, top, right, bottom)
+            } else {
+                cropRect = null // Mode layar penuh normal
+            }
             
             if (mediaProjection == null && resultData != null) {
                 mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, resultData!!)
@@ -116,9 +134,32 @@ class ScreenCaptureService : Service() {
                 bitmap.copyPixelsFromBuffer(buffer)
                 image.close()
 
-                // PERBAIKAN UTAMA: Langsung proses bitmap ASLI layar penuh tanpa dipotong (crop)
-                val fullScreenBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
-                processCapturedBitmap(fullScreenBitmap)
+                val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
+
+                // FITUR CROP MANUAL: Menghitamkan area luar kotak pilihan
+                cropRect?.let { rect ->
+                    val safeLeft = maxOf(0, rect.left)
+                    val safeTop = maxOf(0, rect.top)
+                    val safeRight = minOf(width, rect.right)
+                    val safeBottom = minOf(height, rect.bottom)
+                    
+                    val canvas = Canvas(finalBitmap)
+                    val paint = Paint().apply {
+                        color = Color.BLACK
+                        style = Paint.Style.FILL
+                    }
+                    
+                    // Tutupi atas
+                    canvas.drawRect(0f, 0f, width.toFloat(), safeTop.toFloat(), paint)
+                    // Tutupi bawah
+                    canvas.drawRect(0f, safeBottom.toFloat(), width.toFloat(), height.toFloat(), paint)
+                    // Tutupi kiri
+                    canvas.drawRect(0f, safeTop.toFloat(), safeLeft.toFloat(), safeBottom.toFloat(), paint)
+                    // Tutupi kanan
+                    canvas.drawRect(safeRight.toFloat(), safeTop.toFloat(), width.toFloat(), safeBottom.toFloat(), paint)
+                }
+
+                processCapturedBitmap(finalBitmap)
             } else {
                 isCapturing = false
             }
@@ -161,7 +202,7 @@ class ScreenCaptureService : Service() {
     private fun sendResultToUI(message: String, maxY: Int) {
         val intent = Intent("com.mytranslate.myup.UPDATE_TEXT")
         intent.putExtra("translated_text", message)
-        intent.putExtra("MAX_Y", maxY) // Masukkan koordinat Y terbawah ke UI mengambang
+        intent.putExtra("MAX_Y", maxY)
         sendBroadcast(intent)
     }
 
